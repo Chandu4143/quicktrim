@@ -79,10 +79,28 @@ pub fn finalize(temp: &Path, final_path: &Path) -> Result<(), AppError> {
         });
     }
 
-    if final_path.exists() {
-        return Err(AppError::Io {
-            detail: format!("“{}” already exists.", final_path.display()),
-        });
+    // Atomically claim the destination so an existing file can never be
+    // clobbered, even when `exists()` is unreliable on the platform.
+    let claim = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(final_path);
+    match claim {
+        Ok(file) => {
+            drop(file);
+            let _ = std::fs::remove_file(final_path);
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+            return Err(AppError::Io {
+                detail: format!("{} already exists.", final_path.display()),
+            });
+        }
+        Err(err) => {
+            return Err(crate::media::errors::map_io_error(
+                &err,
+                &final_path.display().to_string(),
+            ));
+        }
     }
 
     std::fs::rename(temp, final_path)
