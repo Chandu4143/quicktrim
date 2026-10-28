@@ -1,0 +1,83 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: Windows x64 bundle
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check the tag matches Cargo.toml
+        shell: pwsh
+        run: |
+          $line = Select-String -Path Cargo.toml -Pattern '^version\s*=\s*"([^"]+)"' | Select-Object -First 1
+          if (-not $line) { throw "No version in Cargo.toml" }
+          $version = $line.Matches[0].Groups[1].Value
+          if ("v$version" -ne $env:GITHUB_REF_NAME) {
+            throw "Tag $env:GITHUB_REF_NAME does not match Cargo.toml version $version"
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+        id: version
+
+      - name: Build
+        run: cargo build --release --locked
+
+      # Pinned, unmodified upstream builds. See docs/releasing.md and
+      # THIRD_PARTY_NOTICES.md before changing either URL.
+      - name: Fetch FFmpeg
+        shell: pwsh
+        run: |
+          $url = "https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-9.0.2-essentials_build.zip"
+          $zip = Join-Path $env:RUNNER_TEMP "ffmpeg.zip"
+          Invoke-WebRequest -Uri $url -OutFile $zip
+          Expand-Archive -Path $zip -DestinationPath (Join-Path $env:RUNNER_TEMP "ffmpeg")
+          $ffmpeg = Get-ChildItem (Join-Path $env:RUNNER_TEMP "ffmpeg") -Recurse -Filter ffmpeg.exe |
+            Select-Object -First 1
+          if (-not $ffmpeg) { throw "ffmpeg.exe not found in the archive" }
+          Copy-Item $ffmpeg.FullName "target\release\ffmpeg.exe"
+          Copy-Item (Join-Path $ffmpeg.DirectoryName "ffprobe.exe") "target\release\ffprobe.exe"
+          & "target\release\ffmpeg.exe" -version | Select-Object -First 1
+
+      - name: Fetch libmpv
+        shell: pwsh
+        run: |
+          $url = "https://sourceforge.net/projects/mpv-player-windows/files/libmpv/mpv-dev-x86_64-20261018-git-01e2533f31.7z/download"
+          $archive = Join-Path $env:RUNNER_TEMP "mpv.7z"
+          Invoke-WebRequest -Uri $url -OutFile $archive -UserAgent "QuickTrim-CI"
+          $out = Join-Path $env:RUNNER_TEMP "mpv"
+          $sevenZip = "C:\Program Files\7-Zip\7z.exe"
+          if (-not (Test-Path $sevenZip)) { $sevenZip = "7z" }
+          & $sevenZip x $archive "-o$out" -y | Out-Null
+          $dll = Get-ChildItem $out -Recurse -Filter libmpv-2.dll | Select-Object -First 1
+          if (-not $dll) { throw "libmpv-2.dll not found in the archive" }
+          Copy-Item $dll.FullName "target\release\libmpv-2.dll"
+
+      - name: Package
+        shell: pwsh
+        run: ./scripts/package.ps1 -Version "${{ steps.version.outputs.version }}"
+
+      - name: Draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          name: QuickTrim ${{ steps.version.outputs.version }}
+          body: |
+            Portable Windows 11 x64 build. Extract the ZIP and run `quicktrim.exe`;
+            nothing is installed.
+
+            See `CHANGELOG.md` in the bundle (or the repository) for what changed.
+          files: |
+            dist/quicktrim-${{ steps.version.outputs.version }}-win-x64.zip
+            dist/quicktrim-${{ steps.version.outputs.version }}-win-x64.zip.sha256

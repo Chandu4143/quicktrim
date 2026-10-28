@@ -1,0 +1,79 @@
+name: Bug report
+description: Something behaved differently from what the README claims.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please do not attach videos you do not have the right to share.
+        For security problems, use the private advisory link instead of an issue.
+  - type: input
+    id: version
+    attributes:
+      label: QuickTrim version
+      description: From `VERSION.txt` in the bundle, or the release tag.
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Windows 11 x64
+        - Windows 10 x64
+        - macOS (not officially supported yet)
+        - Linux (not officially supported yet)
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Playback / preview
+        - Seeking / trimming
+        - Export / save
+        - Packaging / download
+        - Interface / accessibility
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you expect, and what happened instead? One sentence is fine.
+      placeholder: I set OUT and saved, and the result started ~2 seconds too late.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open a 30 s 1080p H.264/AAC MP4
+        2. Seek to 00:07.133 and press I
+        3. Seek to 00:19.616 and press O
+        4. Ctrl+S
+    validations:
+      required: true
+  - type: input
+    id: media
+    attributes:
+      label: The video involved
+      description: Container, codecs, duration, resolution. `ffprobe` output is ideal; no need to upload the file.
+      placeholder: MP4, H.264 + AAC, 35.7 s, 1920x1080, 30 fps
+  - type: textarea
+    id: logs
+    attributes:
+      label: Anything on stderr
+      description: QuickTrim writes FFmpeg logs and stack traces to stderr. Redact usernames and paths if you need to.
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I am running a release from the Releases page, not a modified build.
+        - label: I looked at the known limitations in the README.

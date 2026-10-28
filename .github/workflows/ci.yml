@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: Windows x64
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      # The integration tests drive the real FFmpeg, so it has to sit next to
+      # the test binary. Same pinned build as the release workflow.
+      - name: Fetch FFmpeg for the integration tests
+        shell: pwsh
+        run: |
+          $url = "https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-9.0.2-essentials_build.zip"
+          $zip = Join-Path $env:RUNNER_TEMP "ffmpeg.zip"
+          Invoke-WebRequest -Uri $url -OutFile $zip
+          Expand-Archive -Path $zip -DestinationPath (Join-Path $env:RUNNER_TEMP "ffmpeg")
+          $ffmpeg = Get-ChildItem (Join-Path $env:RUNNER_TEMP "ffmpeg") -Recurse -Filter ffmpeg.exe |
+            Select-Object -First 1
+          if (-not $ffmpeg) { throw "ffmpeg.exe not found in the archive" }
+          New-Item -ItemType Directory -Force target\debug | Out-Null
+          Copy-Item $ffmpeg.FullName "target\debug\ffmpeg.exe"
+          Copy-Item (Join-Path $ffmpeg.DirectoryName "ffprobe.exe") "target\debug\ffprobe.exe"
+          & "target\debug\ffmpeg.exe" -version | Select-Object -First 1
+
+      - name: Test
+        run: cargo test --locked
+
+      - name: Build release
+        run: cargo build --release --locked

@@ -1,0 +1,905 @@
+// QuickTrim — one job: pick a start and an end, save a copy.
+//
+// The visual language is deliberately quiet: near-black surfaces, a single
+// amber accent borrowed from film leader, monospaced timecodes, and no
+// decoration that does not carry information.
+
+global Palette {
+    out property <color> bg: #0d0d0f;
+    out property <color> bg-alt: #0d0d0e;
+    out property <color> surface: #141417;
+    out property <color> raised: #1a1a1e;
+    out property <color> line: #26262b;
+    out property <color> line-strong: #35353d;
+    out property <color> text: #f4f2ec;
+    out property <color> muted: #90909b;
+    out property <color> faint: #5f5f6a;
+    out property <color> disabled: #45454e;
+    out property <color> accent: #e8b44a;
+    out property <color> accent-hover: #f2c264;
+    out property <color> accent-press: #d9a63c;
+    out property <color> ink: #191307;
+    out property <color> selection: #3a2f18;
+    out property <color> danger: #e06a63;
+    out property <color> danger-bg: #241416;
+    out property <color> danger-line: #3a2023;
+    out property <color> notice-bg: #17201a;
+    out property <color> notice-line: #223024;
+    out property <color> notice: #a9c9a0;
+    out property <string> mono: "Consolas";
+}
+
+// ---------------------------------------------------------------------------
+// Buttons
+// ---------------------------------------------------------------------------
+
+component ActionButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> primary: false;
+    in property <bool> danger: false;
+    in property <bool> enabled: true;
+    callback clicked;
+
+    height: 36px;
+    min-width: 128px;
+    border-radius: 8px;
+    border-width: primary ? 0px : 1px;
+    border-color: danger ? Palette.danger-line : Palette.line;
+    background: !enabled ? Palette.raised
+        : danger ? (ta.pressed ? #2c181a : ta.has-hover ? #32191c : #251517)
+        : primary ? (ta.pressed ? Palette.accent-press : ta.has-hover ? Palette.accent-hover : Palette.accent)
+        : (ta.pressed ? #24242a : ta.has-hover ? #1d1d22 : Palette.raised);
+
+    accessible-role: button;
+    accessible-label: root.text;
+
+    Text {
+        x: 12px;
+        width: parent.width - 24px;
+        height: parent.height;
+        text: root.text;
+        font-size: 13px;
+        font-weight: 600;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        color: !root.enabled ? Palette.disabled
+            : root.danger ? #f0b6b1
+            : root.primary ? Palette.ink
+            : Palette.text;
+    }
+
+    ta := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+component GhostButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> enabled: true;
+    in property <bool> active: false;
+    callback clicked;
+
+    height: 32px;
+    min-width: 74px;
+    border-radius: 7px;
+    border-width: 1px;
+    border-color: !enabled ? #1e1e23 : active ? #4a3d22 : Palette.line;
+    background: !enabled ? transparent
+        : ta.pressed ? #24242a
+        : ta.has-hover ? #1d1d22
+        : transparent;
+
+    accessible-role: button;
+    accessible-label: root.text;
+
+    Text {
+        x: 10px;
+        width: parent.width - 20px;
+        height: parent.height;
+        text: root.text;
+        font-size: 12px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        color: !root.enabled ? Palette.disabled : root.active ? Palette.accent : Palette.muted;
+    }
+
+    ta := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+component PlayButton inherits Rectangle {
+    in property <bool> playing;
+    in property <bool> enabled: true;
+    callback clicked;
+
+    width: 34px;
+    height: 34px;
+    border-radius: 17px;
+    background: !enabled ? Palette.raised : ta.pressed ? Palette.accent-press : ta.has-hover ? Palette.accent-hover : Palette.accent;
+
+    accessible-role: button;
+    accessible-label: root.playing ? "Pause" : "Play";
+
+    Path {
+        visible: !root.playing;
+        x: 12px;
+        y: 11px;
+        width: 11px;
+        height: 12px;
+        viewbox-width: 11;
+        viewbox-height: 12;
+        commands: "M 0 0 L 11 6 L 0 12 Z";
+        fill: Palette.ink;
+    }
+
+    Rectangle { visible: root.playing; x: 11px; y: 11px; width: 4px; height: 12px; border-radius: 1px; background: Palette.ink; }
+    Rectangle { visible: root.playing; x: 19px; y: 11px; width: 4px; height: 12px; border-radius: 1px; background: Palette.ink; }
+
+    ta := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Timecode readout
+// ---------------------------------------------------------------------------
+
+component TimeField inherits Rectangle {
+    in property <string> label;
+    in property <string> value;
+    in property <bool> highlight: false;
+
+    width: 132px;
+    height: 50px;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: highlight ? #4a3d22 : Palette.line;
+    background: #101013;
+
+    VerticalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        padding-top: 7px;
+        padding-bottom: 7px;
+        spacing: 3px;
+
+        Text {
+            text: root.label;
+            font-size: 9px;
+            font-weight: 600;
+            letter-spacing: 1.5px;
+            color: Palette.faint;
+        }
+
+        Text {
+            text: root.value;
+            font-family: Palette.mono;
+            font-size: 15px;
+            color: root.highlight ? Palette.accent : Palette.text;
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Timeline: one track, two draggable handles, a playhead.
+// ---------------------------------------------------------------------------
+
+component Timeline inherits Rectangle {
+    in property <int> duration-ms: 1;
+    in property <int> start-ms: 0;
+    in property <int> end-ms: 0;
+    in property <int> playhead-ms: 0;
+    in property <bool> enabled: true;
+
+    callback start-changed(int);
+    callback end-changed(int);
+    callback seek-requested(int);
+    callback scrub-ended();
+
+    height: 76px;
+    clip: false;
+
+    property <int> safe-duration: max(1, duration-ms);
+    property <length> track-left: 10px;
+    property <length> track-width: max(20px, self.width - 20px);
+    property <length> start-offset: self.track-width * (start-ms * 1.0 / safe-duration);
+    property <length> end-offset: self.track-width * (end-ms * 1.0 / safe-duration);
+    property <length> head-offset: self.track-width * (playhead-ms * 1.0 / safe-duration);
+    property <length> start-pos: track-left + start-offset;
+    property <length> end-pos: track-left + end-offset;
+    property <int> active-handle: 0;
+
+    function ms-at(x: length) -> int {
+        let ratio = clamp(((x - root.track-left) / 1px) / (root.track-width / 1px), 0.0, 1.0);
+        return round(ratio * root.safe-duration);
+    }
+
+    function begin-drag(x: length) {
+        if (!root.enabled) {
+            return;
+        }
+        if (x >= root.start-pos - 13px && x <= root.start-pos + 13px) {
+            root.active-handle = 1;
+            root.start-changed(root.ms-at(x));
+        } else if (x >= root.end-pos - 13px && x <= root.end-pos + 13px) {
+            root.active-handle = 2;
+            root.end-changed(root.ms-at(x));
+        } else {
+            root.active-handle = 0;
+            root.seek-requested(root.ms-at(x));
+        }
+    }
+
+    function drag-to(x: length) {
+        if (root.active-handle == 1) {
+            root.start-changed(root.ms-at(x));
+        } else if (root.active-handle == 2) {
+            root.end-changed(root.ms-at(x));
+        }
+    }
+
+    // Track
+    Rectangle {
+        x: root.track-left;
+        y: 34px;
+        width: root.track-width;
+        height: 7px;
+        border-radius: 3.5px;
+        background: #222227;
+    }
+
+    // Ticks
+    for i in 10 : Rectangle {
+        x: root.track-left + root.track-width * i / 10;
+        y: 47px;
+        width: 1px;
+        height: 4px;
+        background: i == 0 || i == 10 ? Palette.line-strong : Palette.line;
+    }
+
+    // Selected span
+    Rectangle {
+        x: root.start-pos;
+        y: 29px;
+        width: max(2px, root.end-pos - root.start-pos);
+        height: 17px;
+        border-radius: 5px;
+        background: Palette.selection;
+        border-width: 1px;
+        border-color: #4a3d22;
+    }
+
+    // Handles
+    Rectangle {
+        x: root.start-pos - 6px;
+        y: 23px;
+        width: 12px;
+        height: 29px;
+        border-radius: 5px;
+        background: root.active-handle == 1 ? Palette.accent-hover : Palette.accent;
+        border-width: 1px;
+        border-color: #f6d795;
+    }
+    Rectangle {
+        x: root.end-pos - 6px;
+        y: 23px;
+        width: 12px;
+        height: 29px;
+        border-radius: 5px;
+        background: root.active-handle == 2 ? Palette.accent-hover : Palette.accent;
+        border-width: 1px;
+        border-color: #f6d795;
+    }
+
+    // Playhead
+    Rectangle {
+        x: root.track-left + root.head-offset - 1px;
+        y: 20px;
+        width: 2px;
+        height: 36px;
+        background: Palette.text;
+    }
+    Rectangle {
+        x: root.track-left + root.head-offset - 3px;
+        y: 17px;
+        width: 6px;
+        height: 6px;
+        border-radius: 3px;
+        background: Palette.text;
+    }
+
+    // Hit area
+    TouchArea {
+        x: 0;
+        y: 14px;
+        width: parent.width;
+        height: 44px;
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+
+        pointer-event(e) => {
+            if (e.kind == PointerEventKind.down) {
+                root.begin-drag(self.mouse-x);
+            } else if (e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel) {
+                if (root.active-handle != 0) {
+                    root.active-handle = 0;
+                    root.scrub-ended();
+                }
+            }
+        }
+
+        moved => {
+            if (root.active-handle != 0) {
+                root.drag-to(self.mouse-x);
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Window
+// ---------------------------------------------------------------------------
+
+export component MainWindow inherits Window {
+    title: "QuickTrim";
+    preferred-width: 1080px;
+    preferred-height: 780px;
+    min-width: 860px;
+    min-height: 660px;
+    background: Palette.bg;
+    forward-focus: keys;
+
+    in-out property <string> file-name: "";
+    in-out property <string> error-text: "";
+    in-out property <string> notice-text: "";
+    in-out property <string> notice-label: "SAVED";
+    in-out property <bool> notice-positive: true;
+    in-out property <bool> surface-tick: false;
+    in-out property <bool> loading: false;
+    in-out property <bool> has-video: false;
+    in property <image> preview-image;
+    in-out property <bool> playing: false;
+    in-out property <bool> muted: false;
+    in-out property <bool> exporting: false;
+    in-out property <float> export-progress: 0.0;
+    in-out property <bool> output-ready: false;
+
+    in-out property <int> position-ms: 0;
+    in-out property <int> duration-ms: 0;
+    in-out property <int> start-ms: 0;
+    in-out property <int> end-ms: 0;
+    in-out property <int> min-gap-ms: 50;
+
+    in-out property <string> position-text: "00:00.000";
+    in-out property <string> duration-text: "--:--.---";
+    in-out property <string> start-text: "--:--.---";
+    in-out property <string> end-text: "--:--.---";
+    in-out property <string> selection-text: "--:--.---";
+    in-out property <string> output-path: "";
+
+    callback open-video();
+    callback save-as();
+    callback close-window();
+    callback toggle-play();
+    callback toggle-mute();
+    callback seek-requested(int);
+    callback seek-start();
+    callback seek-end();
+    callback start-changed(int);
+    callback end-changed(int);
+    callback scrub-ended();
+    callback set-playing-at();
+    callback set-ended-at();
+    callback save-requested();
+    callback cancel-export();
+    callback reveal-output();
+    callback file-dropped(data-transfer);
+    callback toggle-play-requested();
+    callback nudge(int);
+    callback request-close();
+    callback dismiss-message();
+
+    // Slint's software renderer only repaints the regions it believes changed,
+    // because it trusts the window surface to still hold the previous frame.
+    // When the OS throws that surface away (screen lock, virtual desktop
+    // switch, remote session reconnect) the window comes back blank and stays
+    // blank until something repaints it. Flipping this full-size layer between
+    // two colours one step apart forces a complete, invisible repaint once a
+    // second, so the window heals itself within a frame or two.
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        background: root.surface-tick ? Palette.bg : Palette.bg-alt;
+    }
+
+    VerticalLayout {
+        padding: 22px;
+        spacing: 14px;
+
+        // -- header ---------------------------------------------------------
+        HorizontalLayout {
+            height: 44px;
+            spacing: 14px;
+
+            VerticalLayout {
+                width: 176px;
+                spacing: 2px;
+                alignment: start;
+
+                HorizontalLayout {
+                    spacing: 8px;
+                    Text {
+                        text: "QUICKTRIM";
+                        font-size: 15px;
+                        font-weight: 700;
+                        letter-spacing: 2px;
+                        color: Palette.text;
+                    }
+                }
+
+                Text {
+                    text: "cut a clip, keep the original";
+                    font-size: 10px;
+                    letter-spacing: 0.2px;
+                    color: Palette.faint;
+                }
+            }
+
+            Text {
+                text: root.file-name == "" ? "No video open" : root.file-name;
+                font-size: 12px;
+                color: root.file-name == "" ? Palette.faint : Palette.muted;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+                overflow: elide;
+            }
+
+            GhostButton {
+                text: "Open video…";
+                enabled: !root.exporting;
+                width: 112px;
+                clicked => { root.open-video(); }
+            }
+        }
+
+        // -- message bar ----------------------------------------------------
+        Rectangle {
+            visible: root.error-text != "" || root.notice-text != "";
+            height: root.error-text != "" || root.notice-text != "" ? 58px : 0px;
+            border-radius: 9px;
+            border-width: 1px;
+            border-color: root.error-text != "" ? Palette.danger-line : root.notice-positive ? Palette.notice-line : Palette.line-strong;
+            background: root.error-text != "" ? Palette.danger-bg : root.notice-positive ? Palette.notice-bg : Palette.raised;
+
+            HorizontalLayout {
+                padding-left: 14px;
+                padding-right: 8px;
+                padding-top: 10px;
+                padding-bottom: 10px;
+                spacing: 12px;
+
+                Text {
+                    text: root.error-text != "" ? "PROBLEM" : root.notice-label;
+                    font-size: 9px;
+                    font-weight: 700;
+                    letter-spacing: 1.8px;
+                    color: root.error-text != "" ? Palette.danger : root.notice-positive ? Palette.notice : Palette.muted;
+                    vertical-alignment: center;
+                }
+
+                Text {
+                    text: root.error-text != "" ? root.error-text : root.notice-text;
+                    font-size: 12px;
+                    line-height-factor: 1.35;
+                    color: root.error-text != "" ? #e9c7c4 : root.notice-positive ? #d9e6d4 : Palette.muted;
+                    wrap: word-wrap;
+                    max-lines: 2;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                    vertical-alignment: center;
+                }
+
+                Rectangle {
+                    width: 24px;
+                    height: 24px;
+                    border-radius: 5px;
+                    background: close-touch.has-hover ? #2a2a30 : transparent;
+                    y: 0;
+
+                    Text {
+                        text: "×";
+                        width: parent.width;
+                        height: parent.height;
+                        font-size: 16px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                        color: Palette.faint;
+                    }
+
+                    close-touch := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { root.dismiss-message(); }
+                    }
+                }
+            }
+        }
+
+        // -- preview --------------------------------------------------------
+        Rectangle {
+            vertical-stretch: 1;
+            min-height: 160px;
+            background: #000000;
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: Palette.line;
+            clip: true;
+
+            Image {
+                visible: root.has-video;
+                source: root.preview-image;
+                image-fit: contain;
+                x: 0;
+                y: 0;
+                width: parent.width;
+                height: parent.height;
+            }
+
+            VerticalLayout {
+                visible: !root.has-video;
+                alignment: center;
+                spacing: 6px;
+
+                Text {
+                    text: root.loading ? "Reading video…" : "Drop a video here";
+                    font-size: 19px;
+                    font-weight: 600;
+                    color: root.loading ? Palette.muted : Palette.text;
+                    horizontal-alignment: center;
+                }
+
+                Text {
+                    visible: !root.loading;
+                    text: "MP4 · MOV · MKV · WebM · AVI — the original is never touched";
+                    font-size: 11px;
+                    color: Palette.faint;
+                    horizontal-alignment: center;
+                }
+            }
+
+            Rectangle {
+                visible: drop.has-drag;
+                x: 0;
+                y: 0;
+                width: parent.width;
+                height: parent.height;
+                background: #0d0d0f;
+                opacity: 0.93;
+
+                Rectangle {
+                    x: 20px;
+                    y: 20px;
+                    width: parent.width - 40px;
+                    height: parent.height - 40px;
+                    border-radius: 8px;
+                    border-width: 1px;
+                    border-color: Palette.accent;
+                    background: transparent;
+
+                    Text {
+                        text: "Drop to open";
+                        width: parent.width;
+                        height: parent.height;
+                        font-size: 18px;
+                        font-weight: 600;
+                        color: Palette.accent;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+
+        // -- transport ------------------------------------------------------
+        HorizontalLayout {
+            height: 34px;
+            spacing: 12px;
+
+            PlayButton {
+                playing: root.playing;
+                enabled: root.has-video && !root.exporting;
+                clicked => { root.toggle-play(); }
+            }
+
+            Text {
+                text: root.position-text;
+                font-family: Palette.mono;
+                font-size: 13px;
+                color: Palette.text;
+                vertical-alignment: center;
+            }
+
+            Text {
+                text: "/ " + root.duration-text;
+                font-family: Palette.mono;
+                font-size: 12px;
+                color: Palette.faint;
+                vertical-alignment: center;
+            }
+
+            Rectangle { horizontal-stretch: 1; }
+
+            Text {
+                text: "Space play · ← → 5s · I / O set in & out";
+                font-size: 10px;
+                color: Palette.faint;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+
+            GhostButton {
+                text: "Set in";
+                width: 78px;
+                enabled: root.has-video && !root.exporting;
+                clicked => { root.set-playing-at(); }
+            }
+
+            GhostButton {
+                text: "Set out";
+                width: 82px;
+                enabled: root.has-video && !root.exporting;
+                clicked => { root.set-ended-at(); }
+            }
+
+            GhostButton {
+                text: root.muted ? "Muted" : "Sound";
+                active: root.muted;
+                enabled: root.has-video && !root.exporting;
+                width: 78px;
+                clicked => { root.toggle-mute(); }
+            }
+        }
+
+        // -- trim panel -----------------------------------------------------
+        Rectangle {
+            height: 276px;
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: Palette.line;
+            background: Palette.surface;
+
+            VerticalLayout {
+                padding: 18px;
+                spacing: 10px;
+
+                HorizontalLayout {
+                    height: 18px;
+                    spacing: 12px;
+
+                    Text {
+                        text: "TRIM RANGE";
+                        font-size: 9px;
+                        font-weight: 700;
+                        letter-spacing: 2px;
+                        color: Palette.faint;
+                        vertical-alignment: center;
+                    }
+
+                    Text {
+                        text: root.has-video
+                            ? "Selected " + root.selection-text
+                            : "Open a video to begin";
+                        font-family: Palette.mono;
+                        font-size: 11px;
+                        color: root.has-video ? Palette.muted : Palette.faint;
+                        vertical-alignment: center;
+                    }
+
+                    Rectangle { horizontal-stretch: 1; }
+
+                    Text {
+                        visible: root.exporting;
+                        text: round(root.export-progress * 100) + "%";
+                        font-family: Palette.mono;
+                        font-size: 11px;
+                        color: Palette.accent;
+                        vertical-alignment: center;
+                    }
+                }
+
+                Timeline {
+                    height: 76px;
+                    enabled: root.has-video && !root.exporting;
+                    duration-ms: root.duration-ms;
+                    start-ms: root.start-ms;
+                    end-ms: root.end-ms;
+                    playhead-ms: root.position-ms;
+
+                    start-changed(ms) => { root.start-changed(ms); }
+                    end-changed(ms) => { root.end-changed(ms); }
+                    seek-requested(ms) => { root.seek-requested(ms); }
+                    scrub-ended => { root.scrub-ended(); }
+                }
+
+                HorizontalLayout {
+                    spacing: 10px;
+                    height: 50px;
+
+                    TimeField { label: "IN"; value: root.start-text; }
+                    TimeField { label: "OUT"; value: root.end-text; }
+                    TimeField { label: "LENGTH"; value: root.selection-text; highlight: true; }
+
+                    Rectangle { horizontal-stretch: 1; }
+
+                    VerticalLayout {
+                        alignment: end;
+                        spacing: 2px;
+                        width: 286px;
+
+                        Text {
+                            text: "SAVES TO";
+                            font-size: 9px;
+                            font-weight: 600;
+                            letter-spacing: 1.5px;
+                            color: Palette.faint;
+                            horizontal-alignment: right;
+                        }
+
+                        Text {
+                            text: root.output-path == "" ? "Choose a destination, or use the default" : root.output-path;
+                            font-size: 11px;
+                            color: Palette.muted;
+                            horizontal-alignment: right;
+                            overflow: elide;
+                            width: parent.width;
+                        }
+                    }
+                }
+
+                Rectangle { height: 1px; background: Palette.line; }
+
+                HorizontalLayout {
+                    height: 38px;
+                    spacing: 10px;
+
+                    Text {
+                        text: root.exporting
+                            ? "Saving a new file. Cancel is always safe."
+                            : "The original video is never modified.";
+                        font-size: 11px;
+                        color: Palette.faint;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                        overflow: elide;
+                    }
+
+                    Rectangle {
+                        visible: root.exporting;
+                        width: 160px;
+                        height: parent.height;
+                        background: transparent;
+
+                        Rectangle {
+                            x: 0;
+                            y: 16px;
+                            width: 160px;
+                            height: 4px;
+                            border-radius: 2px;
+                            background: #2a2a30;
+                        }
+
+                        Rectangle {
+                            x: 0;
+                            y: 16px;
+                            width: 160px * root.export-progress;
+                            height: 4px;
+                            border-radius: 2px;
+                            background: Palette.accent;
+                        }
+                    }
+
+                    GhostButton {
+                        text: "Save as…";
+                        enabled: root.has-video && !root.exporting;
+                        clicked => { root.save-as(); }
+                    }
+
+                    GhostButton {
+                        visible: root.output-ready && !root.exporting;
+                        text: "Show in folder";
+                        clicked => { root.reveal-output(); }
+                    }
+
+                    ActionButton {
+                        text: root.exporting ? "Cancel export" : "Save a copy";
+                        primary: !root.exporting;
+                        danger: root.exporting;
+                        enabled: root.has-video;
+                        width: 140px;
+                        clicked => {
+                            if (root.exporting) {
+                                root.cancel-export();
+                            } else {
+                                root.save-requested();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Keyboard shortcuts. The focus scope is window-wide but keeps no layout
+    // space; every shortcut has a visible button equivalent.
+    keys := FocusScope {
+        width: 0;
+        height: 0;
+
+        init => { self.focus(); }
+
+        key-pressed(event) => {
+            if (event.text == Key.Space) {
+                root.toggle-play-requested();
+                return accept;
+            }
+            if (event.text == Key.LeftArrow) {
+                root.nudge(event.modifiers.shift ? -1000 : -5000);
+                return accept;
+            }
+            if (event.text == Key.RightArrow) {
+                root.nudge(event.modifiers.shift ? 1000 : 5000);
+                return accept;
+            }
+            if (event.text == Key.Home) {
+                root.seek-requested(0);
+                return accept;
+            }
+            if (event.text == Key.End) {
+                root.seek-requested(root.duration-ms);
+                return accept;
+            }
+            if (event.text == "i") {
+                root.set-playing-at();
+                return accept;
+            }
+            if (event.text == "o") {
+                root.set-ended-at();
+                return accept;
+            }
+            if (event.text == "m") {
+                root.toggle-mute();
+                return accept;
+            }
+            if (event.modifiers.control && (event.text == "s" || event.text == "S")) {
+                root.save-requested();
+                return accept;
+            }
+            if (event.text == Key.Escape) {
+                if (root.exporting) {
+                    root.cancel-export();
+                } else {
+                    root.dismiss-message();
+                }
+                return accept;
+            }
+            return reject;
+        }
+    }
+
+    // Accept drops from the OS anywhere in the window.
+    drop := DropArea {
+        can-drop(event) => { return DragAction.copy; }
+        dropped(event) => {
+            root.file-dropped(event.data);
+            return DragAction.copy;
+        }
+    }
+}
